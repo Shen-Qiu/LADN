@@ -16,6 +16,7 @@ def read_video_ids(cap_file):
                 video_ids_list.append(video_id)
     return video_ids_list
 
+
 def collate_frame_gru_fn(data):
     """
     Build mini-batch tensors from a list of (video, caption) tuples.
@@ -100,7 +101,6 @@ def collate_text(data):
         lengths = None
         words_mask = None
 
-
     cap_bows = torch.stack(cap_bows, 0) if cap_bows[0] is not None else None
 
     text_data = (target, cap_bows, lengths, words_mask)
@@ -129,7 +129,6 @@ class Dataset4DualEncoding(data.Dataset):
         self.bow2vec = bow2vec
         self.vocab = vocab
         self.length = len(self.cap_ids)
-        
 
     def __getitem__(self, index):
         cap_id = self.cap_ids[index]
@@ -244,7 +243,6 @@ class TxtDataSet4DualEncoding(data.Dataset):
         return self.length
 
 
-
 def get_train_data_loaders(cap_files, visual_feats, vocab, bow2vec, batch_size=100, num_workers=2, n_caption=2, video2frames=None):
     """
     Returns torch.utils.data.DataLoader for train and validation datasets
@@ -262,7 +260,6 @@ def get_train_data_loaders(cap_files, visual_feats, vocab, bow2vec, batch_size=1
                                     collate_fn=collate_frame_gru_fn)
                         for x in cap_files if x=='train' }
     return data_loaders
-
 
 
 def get_vis_data_loader(vis_feat, batch_size=100, num_workers=2, video2frames=None, video_ids=None):
@@ -288,7 +285,6 @@ def get_txt_data_loader(cap_file, vocab, bow2vec, batch_size=100, num_workers=2)
                                               num_workers=num_workers,
                                               collate_fn=collate_text)
     return data_loader
-
 
 
 if __name__ == '__main__':

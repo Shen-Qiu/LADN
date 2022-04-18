@@ -3,15 +3,16 @@ from torch.autograd import Variable
 import torch.nn as nn
 
 
-
 def cosine_sim(im, s):
-    """Cosine similarity between all the image and sentence pairs
+    """
+    Cosine similarity between all the image and sentence pairs
     """
     return im.mm(s.t())
 
 
 def order_sim(im, s):
-    """Order embeddings similarity measure $max(0, s-im)$
+    """
+    Order embeddings similarity measure $max(0, s-im)$
     """
     YmX = (s.unsqueeze(1).expand(s.size(0), im.size(0), s.size(1))
            - im.unsqueeze(0).expand(s.size(0), im.size(0), s.size(1)))
@@ -20,7 +21,8 @@ def order_sim(im, s):
 
 
 def euclidean_sim(im, s):
-    """L2 distance
+    """
+    L2 distance
     """
     YmX = (s.unsqueeze(1).expand(s.size(0), im.size(0), s.size(1))
            - im.unsqueeze(0).expand(s.size(0), im.size(0), s.size(1)))
@@ -29,15 +31,18 @@ def euclidean_sim(im, s):
 
 
 def L1_sim(im, s):
-    """L1 distance
+    """
+    L1 distance
     """
     YmX = (s.unsqueeze(1).expand(s.size(0), im.size(0), s.size(1))
            - im.unsqueeze(0).expand(s.size(0), im.size(0), s.size(1)))
     score = -YmX.abs().sum(2).t()
     return score
 
+
 def L1_sim_norm(im, s):
-    """L1 normalization distance  1 - L_1/K
+    """
+    L1 normalization distance  1 - L_1/K
     """
     YmX = (s.unsqueeze(1).expand(s.size(0), im.size(0), s.size(1))
            - im.unsqueeze(0).expand(s.size(0), im.size(0), s.size(1)))
@@ -46,15 +51,18 @@ def L1_sim_norm(im, s):
 
 
 def L2_sim(im, s):
-    """L2 distance
+    """
+    L2 distance
     """
     YmX = (s.unsqueeze(1).expand(s.size(0), im.size(0), s.size(1))
            - im.unsqueeze(0).expand(s.size(0), im.size(0), s.size(1)))
     score = -YmX.pow(2).sum(2).t()
     return score
 
+
 def L2_sim_norm(im, s):
-    """L2 normalization distance  1 - L_2/K
+    """
+    L2 normalization distance  1 - L_2/K
     """
     YmX = (s.unsqueeze(1).expand(s.size(0), im.size(0), s.size(1))
            - im.unsqueeze(0).expand(s.size(0), im.size(0), s.size(1)))
@@ -74,6 +82,7 @@ def jaccard_sim(im, s):
 
 
 NAME_TO_SIM = {'cosine': cosine_sim, 'order': order_sim, 'euclidean': euclidean_sim, 'jaccard': jaccard_sim}
+
 
 def get_sim(name):
     assert name in NAME_TO_SIM, '%s not supported.'%name
@@ -126,12 +135,12 @@ class TripletLoss(nn.Module):
         cost_im = None
         # compare every diagonal score to scores in its column
         if self.direction in  ['v2t', 'all']:
-            # caption retrieval
+            # video 2 caption retrieval
             cost_s = (self.margin + scores - d1).clamp(min=0)
             cost_s = cost_s.masked_fill_(I, 0)
         # compare every diagonal score to scores in its row
         if self.direction in ['t2v', 'all']:
-            # video retrieval
+            # caption 2 video retrieval
             cost_im = (self.margin + scores - d2).clamp(min=0)
             cost_im = cost_im.masked_fill_(I, 0)
 

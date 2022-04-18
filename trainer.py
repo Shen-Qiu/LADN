@@ -9,7 +9,7 @@ import logging
 import argparse
 
 import validate
-import tensorboard_logger as tb_logger
+# import tensorboard_logger as tb_logger
 from model import get_model, get_we_parameter
 
 import util.tag_data_provider as data
@@ -22,6 +22,9 @@ from basic.common import makedirsforfile, checkToSkip
 from basic.util import read_dict, AverageMeter, LogCollector, log_config
 from basic.generic_utils import Progbar
 
+import numpy as np
+
+os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 
 def parse_args():
     # Hyper Parameters
@@ -29,7 +32,7 @@ def parse_args():
     parser.add_argument('--rootpath', type=str, default=ROOT_PATH,
                         help='path to datasets. (default: %s)'%ROOT_PATH)
     parser.add_argument('--collectionStrt', type=str, default='single', help='collection structure (single|multiple)')
-    parser.add_argument('--collection', type=str,  help='dataset name')
+    parser.add_argument('--collection', type=str,  default='msrvtt10kmiech', help='dataset name')
     parser.add_argument('--trainCollection', type=str, help='train collection')
     parser.add_argument('--valCollection', type=str,  help='validation collection')
     parser.add_argument('--testCollection', type=str,  help='test collection')
@@ -40,30 +43,37 @@ def parse_args():
     parser.add_argument('--concate', type=str, default='full', help='feature concatenation style. (full|reduced) full=level 1+2+3; reduced=level 2+3')
     parser.add_argument('--measure', type=str, default='cosine', help='measure method. (default: cosine)')
     parser.add_argument('--measure_2', type=str, default='jaccard', help='measure method. (default: cosine)')
-    parser.add_argument('--dropout', type=float, default=0.2, help='dropout rate (default: 0.2)')
+    parser.add_argument('--dropout', type=float, default=0.1, help='dropout rate (default: 0.2)')
     # text-side multi-level encoding
     parser.add_argument('--vocab', type=str, default='word_vocab_5', help='word vocabulary. (default: word_vocab_5)')
     parser.add_argument('--word_dim', type=int, default=500, help='word embedding dimension')
-    parser.add_argument('--text_rnn_size', type=int, default=512, help='text rnn encoder size. (default: 1024)')
+    parser.add_argument('--text_rnn_size', type=int, default=1024, help='text rnn encoder size. (default: 1024)')
     parser.add_argument('--text_kernel_num', type=int, default=512, help='number of each kind of text kernel')
     parser.add_argument('--text_kernel_sizes', type=str, default='2-3-4', help='dash-separated kernel size to use for text convolution')
-    parser.add_argument('--text_norm', action='store_true', help='normalize the text embeddings at last layer')
+    parser.add_argument('--text_norm', action='store_true', default=True, help='normalize the text embeddings at last layer')
     # video-side multi-level encoding
-    parser.add_argument('--visual_feature', type=str, default='resnet-152-img1k-flatten0_outputos', help='visual feature.')
-    parser.add_argument('--visual_rnn_size', type=int, default=512, help='visual rnn encoder size')
+    parser.add_argument('--visual_feature', type=str, default='resnext101-resnet152', help='visual feature.')
+    parser.add_argument('--visual_rnn_size', type=int, default=1024, help='visual rnn encoder size')
     parser.add_argument('--visual_kernel_num', type=int, default=512, help='number of each kind of visual kernel')
     parser.add_argument('--visual_kernel_sizes', type=str, default='2-3-4-5', help='dash-separated kernel size to use for visual convolution')
-    parser.add_argument('--visual_norm', action='store_true', help='normalize the visual embeddings at last layer')
+    parser.add_argument('--visual_norm', action='store_true', default=True , help='normalize the visual embeddings at last layer')
     parser.add_argument('--gru_pool', type=str, default='mean', help='pooling on output of gru (mean|max)')
     # common space learning
-    parser.add_argument('--text_mapping_layers', type=str, default='0-1536', help='text fully connected layers for common space learning. (default: 0-2048)')
-    parser.add_argument('--visual_mapping_layers', type=str, default='0-1536', help='visual fully connected layers  for common space learning. (default: 0-2048)')
+    parser.add_argument('--t_global_mapping_layers', type=str, default='0-1536', help='text fully connected layers for common space learning. (default: 0-2048)')
+    parser.add_argument('--t_local_mapping_layers', type=str, default='0-1536', help='text fully connected layers for common space learning. (default: 0-2048)')
+    parser.add_argument('--t_temporal_mapping_layers', type=str, default='0-1536', help='text fully connected layers for common space learning. (default: 0-2048)')
+    parser.add_argument('--t_temp_spa_mapping_layers', type=str, default='0-1536', help='text fully connected layers for common space learning. (default: 0-2048)')
+    parser.add_argument('--v_global_mapping_layers', type=str, default='0-1536', help='visual fully connected layers  for common space learning. (default: 0-2048)')
+    parser.add_argument('--v_local_mapping_layers', type=str, default='0-1536', help='visual fully connected layers  for common space learning. (default: 0-2048)')
+    parser.add_argument('--v_temporal_mapping_layers', type=str, default='0-1536', help='visual fully connected layers  for common space learning. (default: 0-2048)')
+    parser.add_argument('--v_temp_spa_mapping_layers', type=str, default='0-1536', help='visual fully connected layers  for common space learning. (default: 0-2048)')
     # loss
     parser.add_argument('--loss_fun', type=str, default='mrl', help='loss function')
-    parser.add_argument('--margin', type=float, default=0.2, help='rank loss margin')
-    parser.add_argument('--margin_2', type=float, default=0.2, help='rank loss margin')
+    parser.add_argument('--margin_t2v', type=float, default=0.2, help='rank loss margin')
+    parser.add_argument('--margin_v2t', type=float, default=0.2, help='rank loss margin')
+    parser.add_argument('--margin_2', type=float, default=0.3, help='rank loss margin')
     parser.add_argument('--direction', type=str, default='all', help='retrieval direction (all|t2v|v2t)')
-    parser.add_argument('--max_violation', action='store_true', help='use max instead of sum in the rank loss')
+    parser.add_argument('--max_violation', action='store_true', default=True, help='use max instead of sum in the rank loss')
     parser.add_argument('--cost_style', type=str, default='sum', help='cost style (sum, mean). (default: sum)')
     # optimizer
     parser.add_argument('--optimizer', type=str, default='adam', help='optimizer. (default: rmsprop)')
@@ -76,9 +86,9 @@ def parse_args():
     parser.add_argument('--num_epochs', type=int, default=50, help='Number of training epochs.')
     parser.add_argument('--batch_size', type=int, default=128, help='Size of a training mini-batch.')
     parser.add_argument('--workers', type=int, default=5, help='Number of data loader workers.')
-    parser.add_argument('--postfix', type=str, default='runs_0', help='Path to save the model and Tensorboard log.')
+    parser.add_argument('--postfix', type=str, default='github', help='Path to save the model and Tensorboard log.')
     parser.add_argument('--log_step', type=int, default=10, help='Number of steps to print and record the log.')
-    parser.add_argument('--cv_name', type=str, default='cv_tpami_2021', help='')
+    # parser.add_argument('--cv_name', type=str, default='cv_tpami_2021', help='')
     #tag
     parser.add_argument('--tag_vocab_size', type=int, default=512, help='what the size of tag vocab will you use')
 
@@ -90,19 +100,14 @@ def main():
     opt = parse_args()
 
     rootpath = opt.rootpath
-    collectionStrt = opt.collectionStrt
     collection = opt.collection
-
-    if collectionStrt == 'single': # train,val data are in one directory
+    if collection is not None: # train,val data are in one directory
         opt.trainCollection = '%strain' % collection
         opt.valCollection = '%sval' % collection
         opt.testCollection = '%stest' % collection
         collections_pathname = {'train': collection, 'val': collection, 'test': collection}
-    elif collectionStrt == 'multiple': # train,val data are separated in multiple directories
+    else: # train,val data are separated in multiple directories
         collections_pathname = {'train': opt.trainCollection, 'val': opt.valCollection, 'test': opt.testCollection}
-    else:
-        raise NotImplementedError('collection structure %s not implemented' % collectionStrt)
-
 
     cap_file = {'train': '%s.caption.txt' % opt.trainCollection, 
                 'val': '%s.caption.txt' % opt.valCollection}
@@ -126,44 +131,45 @@ def main():
             (opt.visual_feature, opt.visual_rnn_size, opt.visual_norm)
     visual_encode_info += "_kernel_sizes_%s_num_%s" % (opt.visual_kernel_sizes, opt.visual_kernel_num)
     # common space learning info
-    mapping_info = "mapping_text_%s_img_%s_tag_vocab_size_%d" % (opt.text_mapping_layers, opt.visual_mapping_layers, opt.tag_vocab_size)
+    mapping_info = "mapping_text_%s_img_%s_tag_vocab_size_%d" % (opt.t_temp_spa_mapping_layers, opt.v_temp_spa_mapping_layers, opt.tag_vocab_size)
 
     if opt.gru_pool == 'max':
         mapping_info += '_gru_pool_%s' % opt.gru_pool
 
     loss_info = 'loss_func_%s_margin_%s_%s_direction_%s_max_violation_%s_cost_style_%s' % \
-                        (opt.loss_fun, opt.margin, opt.margin_2, opt.direction, opt.max_violation, opt.cost_style)
+                        (opt.loss_fun, opt.margin_v2t, opt.margin_2, opt.direction, opt.max_violation, opt.cost_style)
     optimizer_info = 'optimizer_%s_lr_%s_decay_%.2f_grad_clip_%.1f_val_metric_%s' % \
                     (opt.optimizer, opt.learning_rate, opt.lr_decay_rate, opt.grad_clip, opt.val_metric)
 
 
-    opt.logger_name = os.path.join(rootpath, collections_pathname['train'], opt.cv_name, collections_pathname['val'], model_info, text_encode_info,
-                            visual_encode_info, mapping_info, loss_info, optimizer_info, opt.postfix)
+    # opt.logger_name = os.path.join(rootpath, collections_pathname['train'], opt.cv_name, collections_pathname['val'], model_info, text_encode_info,
+    #                         visual_encode_info, mapping_info, loss_info, optimizer_info, opt.postfix)
+    opt.logger_name = os.path.join(rootpath, collections_pathname['train'], collections_pathname['val'], model_info,
+                                   text_encode_info, visual_encode_info, mapping_info, loss_info, optimizer_info, opt.postfix)
     logging.info(opt.logger_name)
 
-    if checkToSkip(os.path.join(opt.logger_name, 'model_best.pth.tar'), opt.overwrite):
-        sys.exit(0)
-    if checkToSkip(os.path.join(opt.logger_name, 'val_metric.txt'), opt.overwrite):
-        sys.exit(0)
+    # if checkToSkip(os.path.join(opt.logger_name, 'model_best.pth.tar'), opt.overwrite):
+    #     sys.exit(0)
+    # if checkToSkip(os.path.join(opt.logger_name, 'val_metric.txt'), opt.overwrite):
+    #     sys.exit(0)
     makedirsforfile(os.path.join(opt.logger_name, 'val_metric.txt'))
 
     # logging.basicConfig(format='%(asctime)s %(message)s', level=logging.INFO)
-    log_config(opt.logger_name)
-    tb_logger.configure(opt.logger_name, flush_secs=5)
+    # log_config(opt.logger_name)
+    # tb_logger.configure(opt.logger_name, flush_secs=5)
     logging.info(json.dumps(vars(opt), indent = 2))
-
 
     opt.text_kernel_sizes = list(map(int, opt.text_kernel_sizes.split('-')))
     opt.visual_kernel_sizes = list(map(int, opt.visual_kernel_sizes.split('-')))
 
     # caption
-    caption_files = { x: os.path.join(rootpath, collections_pathname[x], 'TextData', cap_file[x])
+    caption_files = {x: os.path.join(rootpath, collections_pathname[x], 'TextData', cap_file[x])
                         for x in cap_file }
     # Load visual features
     visual_feat_path = {x: os.path.join(rootpath, collections_pathname[x], 'FeatureData', opt.visual_feature)
                         for x in cap_file }
     visual_feats = {x: BigFile(visual_feat_path[x]) for x in visual_feat_path}
-    opt.visual_feat_dim = visual_feats['train'].ndims
+    opt.visual_feat_dim = int(visual_feats['train'].ndims) // 2
 
     # Load tag vocabulary
     tag_vocab_size = opt.tag_vocab_size
@@ -188,17 +194,28 @@ def main():
         opt.we_parameter = get_we_parameter(rnn_vocab, w2v_data_path)
 
     # mapping layer structure
-    opt.text_mapping_layers = list(map(int, opt.text_mapping_layers.split('-')))
-    opt.visual_mapping_layers = list(map(int, opt.visual_mapping_layers.split('-')))
+    opt.t_global_mapping_layers = list(map(int, opt.t_global_mapping_layers.split('-')))
+    opt.t_local_mapping_layers = list(map(int, opt.t_local_mapping_layers.split('-')))
+    opt.t_temporal_mapping_layers = list(map(int, opt.t_temporal_mapping_layers.split('-')))
+    opt.t_temp_spa_mapping_layers = list(map(int, opt.t_temp_spa_mapping_layers.split('-')))
+    opt.v_global_mapping_layers = list(map(int, opt.v_global_mapping_layers.split('-')))
+    opt.v_local_mapping_layers = list(map(int, opt.v_local_mapping_layers.split('-')))
+    opt.v_temporal_mapping_layers = list(map(int, opt.v_temporal_mapping_layers.split('-')))
+    opt.v_temp_spa_mapping_layers = list(map(int, opt.v_temp_spa_mapping_layers.split('-')))
     if opt.concate == 'full':
-        opt.text_mapping_layers[0] = opt.bow_vocab_size + opt.text_rnn_size*2 + opt.text_kernel_num * len(opt.text_kernel_sizes) 
-        opt.visual_mapping_layers[0] = opt.visual_feat_dim + opt.visual_rnn_size*2 + opt.visual_kernel_num * len(opt.visual_kernel_sizes)
+        opt.t_global_mapping_layers[0] = opt.bow_vocab_size
+        opt.t_local_mapping_layers[0] = opt.text_kernel_num * len(opt.text_kernel_sizes)
+        opt.t_temporal_mapping_layers[0] = opt.text_rnn_size
+        opt.t_temp_spa_mapping_layers[0] = opt.bow_vocab_size + opt.text_rnn_size + opt.text_kernel_num * len(opt.text_kernel_sizes)
+        opt.v_global_mapping_layers[0] = opt.visual_feat_dim
+        opt.v_local_mapping_layers[0] = opt.visual_kernel_num * len(opt.visual_kernel_sizes)
+        opt.v_temporal_mapping_layers[0] = opt.visual_rnn_size
+        opt.v_temp_spa_mapping_layers[0] = opt.visual_feat_dim + opt.visual_rnn_size + opt.visual_kernel_num * len(opt.visual_kernel_sizes)
     elif opt.concate == 'reduced':
         opt.text_mapping_layers[0] = opt.text_rnn_size*2 + opt.text_kernel_num * len(opt.text_kernel_sizes) 
         opt.visual_mapping_layers[0] = opt.visual_rnn_size*2 + opt.visual_kernel_num * len(opt.visual_kernel_sizes)
     else:
         raise NotImplementedError('Model %s not implemented' % opt.model)
-
 
     # set data loader
     video2frames = {x: read_dict(os.path.join(rootpath, collections_pathname[x], 'FeatureData', opt.visual_feature, 'video2frames.txt'))
@@ -226,10 +243,10 @@ def main():
             model.Eiters = checkpoint['Eiters']
             logging.info("=> loaded checkpoint '{}' (epoch {}, best_rsum {})"
                   .format(opt.resume, start_epoch, best_rsum))
-            validate.validate(opt, tb_logger, data_loaders['val'], model, measure=opt.measure)
+            # validate.validate(opt, tb_logger, data_loaders['val'], model, measure=opt.measure)
+            validate.validate(opt, data_loaders['val'], model, measure=opt.measure)
         else:
             logging.info("=> no checkpoint found at '{}'".format(opt.resume))
-
 
     # Train the Model
     best_rsum = 0
@@ -244,18 +261,14 @@ def main():
         train(opt, data_loaders['train'], model, epoch)
 
         if opt.space == 'hybrid':
-            rsum = validate.validate_hybrid(opt, tb_logger, val_vid_data_loader, val_text_data_loader, model, measure=opt.measure, measure_2=opt.measure_2)
+            # rsum = validate.validate_hybrid(opt, tb_logger, val_vid_data_loader, val_text_data_loader, model, measure=opt.measure, measure_2=opt.measure_2)
+            rsum = validate.validate_hybrid(opt, val_vid_data_loader, val_text_data_loader, model, measure=opt.measure, measure_2=opt.measure_2)
         elif opt.space == 'latent':
-            rsum = validate.validate(opt, tb_logger, val_vid_data_loader, val_text_data_loader, model, measure=opt.measure)
+            rsum = validate.validate(opt, val_vid_data_loader, val_text_data_loader, model, measure=opt.measure)
         
         # remember best R@ sum and save checkpoint
         is_best = rsum > best_rsum
         best_rsum = max(rsum, best_rsum)
-        logging.info(' * Current perf: {}'.format(rsum))
-        logging.info(' * Best perf: {}'.format(best_rsum))
-        logging.info('')
-        fout_val_metric_hist.write('epoch_%d: %f\n' % (epoch, rsum))
-        fout_val_metric_hist.flush()
         
         if is_best:
             save_checkpoint({
@@ -267,7 +280,12 @@ def main():
             }, is_best, filename='checkpoint_epoch_%s.pth.tar'%epoch, prefix=opt.logger_name + '/', best_epoch=best_epoch)
             best_epoch = epoch
 
-    
+        logging.info(' * Current perf: {:.2f}'.format(rsum))
+        logging.info(' * Best perf: {:.2f}, epoch: {}'.format(best_rsum, best_epoch))
+        logging.info('')
+        fout_val_metric_hist.write('epoch_%d: %f\n' % (epoch, rsum))
+        fout_val_metric_hist.flush()
+
         lr_counter += 1
         decay_learning_rate(opt, model.optimizer, opt.lr_decay_rate)
         if not is_best:
@@ -339,11 +357,11 @@ def train(opt, train_loader, model, epoch):
         end = time.time()
 
         # Record logs in tensorboard
-        tb_logger.log_value('epoch', epoch, step=model.Eiters)
-        tb_logger.log_value('step', i, step=model.Eiters)
-        tb_logger.log_value('batch_time', batch_time.val, step=model.Eiters)
-        tb_logger.log_value('data_time', data_time.val, step=model.Eiters)
-        model.logger.tb_log(tb_logger, step=model.Eiters)
+        # tb_logger.log_value('epoch', epoch, step=model.Eiters)
+        # tb_logger.log_value('step', i, step=model.Eiters)
+        # tb_logger.log_value('batch_time', batch_time.val, step=model.Eiters)
+        # tb_logger.log_value('data_time', data_time.val, step=model.Eiters)
+        # model.logger.tb_log(tb_logger, step=model.Eiters)
 
 
 def save_checkpoint(state, is_best, filename='checkpoint.pth.tar', prefix='', best_epoch=None):
@@ -386,4 +404,7 @@ def accuracy(output, target, topk=(1,)):
 
 
 if __name__ == '__main__':
+    torch.manual_seed(0)
+    torch.cuda.manual_seed_all(0)
+    np.random.seed(0)
     main()
