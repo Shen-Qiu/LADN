@@ -8,7 +8,8 @@ from basic.generic_utils import Progbar
 from basic.common import makedirsforfile
 
 def l2norm(X):
-    """L2-normalize columns of X
+    """
+    L2-normalize columns of X
     """
     norm = np.linalg.norm(X, axis=1, keepdims=True)
     return 1.0 * X / norm
@@ -33,6 +34,7 @@ def cal_error(videos, captions, measure='cosine'):
         captions = torch.Tensor(captions)
         videos = torch.Tensor(videos)
         errors = -1*jaccard_sim(captions, videos)
+        errors = errors.numpy()
     return errors
 
 
@@ -108,7 +110,8 @@ def pred_tag(tag_prob_embs, video_ids, tag_vocab_path, output_dir, k=10):
 
 # encode text or video
 def encode_text_or_vid(encoder, data_loader, return_ids=True):
-    """Encode all videos and captions loadable by `data_loader`
+    """
+    Encode all videos and captions loadable by `data_loader`
     """
     # numpy array to keep all the embeddings
     embeddings = None
@@ -140,7 +143,8 @@ def encode_text_or_vid(encoder, data_loader, return_ids=True):
 
 # encode text or video in hybrid manner
 def encode_text_or_vid_tag_hist_prob(encoder, data_loader, return_ids=True):
-    """Encode all videos and captions loadable by `data_loader`
+    """
+    Encode all videos and captions loadable by `data_loader`
     """
     # numpy array to keep all the embeddings
     init_flag = True
@@ -149,25 +153,37 @@ def encode_text_or_vid_tag_hist_prob(encoder, data_loader, return_ids=True):
     for i, (datas, idxs, data_ids) in enumerate(data_loader):
 
         # compute the embeddings
-        emb, tag_prob = encoder(datas)
+        (global_emb, local_emb, temporal_emb, temp_spa_emb), (global_tag_prob, local_tag_prob, temporal_tag_prob, temp_spa_tag_prob) = encoder(datas)
 
         # initialize the numpy arrays given the size of the embeddings
         if init_flag:
             init_flag = False
-            if emb is not None:
-                embeddings = np.zeros((len(data_loader.dataset), emb.size(1)))
+            if global_emb is not None:
+                global_embeddings = np.zeros((len(data_loader.dataset), global_emb.size(1)))
+                local_embeddings = np.zeros((len(data_loader.dataset), local_emb.size(1)))
+                temporal_embeddings = np.zeros((len(data_loader.dataset), temporal_emb.size(1)))
+                temp_spa_embeddings = np.zeros((len(data_loader.dataset), temp_spa_emb.size(1)))
             else:
-                embeddings = None
-            if tag_prob is not None:
-                tag_prob_embs = np.zeros((len(data_loader.dataset), tag_prob.size(1)))
+                global_embeddings = None
+            if global_tag_prob is not None:
+                global_tag_prob_embs = np.zeros((len(data_loader.dataset), global_tag_prob.size(1)))
+                local_tag_prob_embs = np.zeros((len(data_loader.dataset), local_tag_prob.size(1)))
+                temporal_tag_prob_embs = np.zeros((len(data_loader.dataset), temporal_tag_prob.size(1)))
+                temp_spa_tag_prob_embs = np.zeros((len(data_loader.dataset), temp_spa_tag_prob.size(1)))
             else:
-                tag_prob_embs = None
+                global_tag_prob_embs = None
 
         # preserve the embeddings by copying from gpu and converting to numpy
-        if emb is not None:
-            embeddings[idxs] = emb.data.cpu().numpy().copy()
-        if tag_prob is not None:
-            tag_prob_embs[idxs] = tag_prob.data.cpu().numpy().copy()
+        if global_tag_prob_embs is not None:
+            global_embeddings[idxs] = global_emb.data.cpu().numpy().copy()
+            local_embeddings[idxs] = local_emb.data.cpu().numpy().copy()
+            temporal_embeddings[idxs] = temporal_emb.data.cpu().numpy().copy()
+            temp_spa_embeddings[idxs] = temp_spa_emb.data.cpu().numpy().copy()
+        if global_tag_prob is not None:
+            global_tag_prob_embs[idxs] = global_tag_prob.data.cpu().numpy().copy()
+            local_tag_prob_embs[idxs] = local_tag_prob.data.cpu().numpy().copy()
+            temporal_tag_prob_embs[idxs] = temporal_tag_prob.data.cpu().numpy().copy()
+            temp_spa_tag_prob_embs[idxs] = temp_spa_tag_prob.data.cpu().numpy().copy()
 
         for j, idx in enumerate(idxs):
             ids[idx] = data_ids[j]
@@ -176,6 +192,6 @@ def encode_text_or_vid_tag_hist_prob(encoder, data_loader, return_ids=True):
         pbar.add(len(idxs))
 
     if return_ids == True:
-        return embeddings, tag_prob_embs, ids,
+        return (global_embeddings, local_embeddings, temporal_embeddings, temp_spa_embeddings), (global_tag_prob_embs, local_tag_prob_embs, temporal_tag_prob_embs, temp_spa_tag_prob_embs), ids,
     else:
-        return embeddings, tag_prob_embs
+        return (global_embeddings, local_embeddings, temporal_embeddings, temp_spa_embeddings), (global_tag_prob_embs, local_tag_prob_embs, temporal_tag_prob_embs, temp_spa_tag_prob_embs)
